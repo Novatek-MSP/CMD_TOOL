@@ -11,7 +11,7 @@
  */
 
 /* Linux */
-#include <linux/types.h>
+#include <linux/types.h
 #include <linux/input.h>
 #include <linux/hidraw.h>
 

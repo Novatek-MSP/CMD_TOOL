@@ -42,6 +42,7 @@
 #define LDROM_MODE 1
 #define APROM_MODE 2
 
+#define PID_ADDR 0x1000
 #define REPORT_ID 0x07
 #define REPORT_SIZE 66
 #define CMD_GET_APROM_VER 0x00
@@ -178,6 +179,8 @@ char get_binary(char *path)
 	if(file < 0)
 		return ERR;
 	fsize = lseek(file, 0, SEEK_END);
+	if (buf_bin)
+		free(buf_bin);
 	buf_bin = malloc(sizeof(char) * fsize);
 	lseek(file, 0, SEEK_SET);
 	if (fsize != read(file, buf_bin, fsize))
@@ -258,7 +261,44 @@ void write_ldrom_checksum(void)
 	hid_wr(xbuf);
 }
 
-char update_aprom(int mode, char* bin_path)
+char update_buf_pid_checksum(char* pid_str)
+{
+	int ret, i;
+	uint32_t chksum;
+	uint16_t pid[1];
+
+	if (!buf_bin) {
+		PE("Need to get binary first");
+		return ERR;
+	}
+
+	ret = sscanf(pid_str, "%hx", pid);
+	if (!ret) {
+		PE("Invalid PID value : %s", pid_str);
+		return ERR;
+	}
+
+	buf_bin[PID_ADDR] = (uint8_t)(pid[0] & 0xff);
+	buf_bin[PID_ADDR + 1] = (uint8_t)(pid[0] >> 8);
+
+	chksum = 0;
+	for (i = 0; i < bin_aprom_len; i += 4) {
+		chksum += buf_bin[i] + (buf_bin[i + 1] << 8) +
+				(buf_bin[i + 2] << 16) +
+				(buf_bin[i + 3] << 24);
+	}
+	buf_bin[fsize - 4] = chksum & 0xff;
+	buf_bin[fsize - 3] = chksum >> 8;
+	buf_bin[fsize - 2] = chksum >> 16;
+	buf_bin[fsize - 1] = chksum >> 24;
+	bin_aprom_chksum = chksum;
+	PF("update buf pid to %02x%02x", buf_bin[PID_ADDR + 1], buf_bin[PID_ADDR]);
+	PF("update buf checksum to %u", chksum);
+
+	return 0;
+}
+
+char update_aprom(int mode, char* bin_path, char* pid_str)
 {
 	int ret, i, mod, rem, rem_len, csize, oft, idx;
 
@@ -270,6 +310,12 @@ char update_aprom(int mode, char* bin_path)
 
 	if ((mode != LDROM_MODE) && jump_to_ldrom())
 		return ERR;
+
+	ret = update_buf_pid_checksum(pid_str);
+	if (ret) {
+		PE("Failed to update buf for pid and checksum");
+		return ERR;
+	}
 
 	PF("Start Flashing");
 	rst_xbuf();
@@ -379,7 +425,11 @@ int main(int argc, char *argv[])
 			PE("Bin path is not specified");
 			return ERR;
 		}
-		ret = update_aprom(mode, argv[3]);
+		if (!argv[4]) {
+			argv[4] = "F7FC";
+			PF("PID is not specified, set to default F7FC");
+		}
+		ret = update_aprom(mode, argv[3], argv[4]);
 		if (ret) {
 			PE("Failed to update aprom");
 			return ERR;
@@ -389,9 +439,9 @@ int main(int argc, char *argv[])
 		}
 	}
 info:
-	PF("[dev/hidraw*] [-v]                - show aprom version");
-	PF("[dev/hidraw*] [-i]                - show rom status");
-	PF("[dev/hidraw*] [-u] <aprom_fw.bin> - update aprom fw");
+	PF("[dev/hidraw*] [-v]                      - show aprom version");
+	PF("[dev/hidraw*] [-i]                      - show rom status");
+	PF("[dev/hidraw*] [-u] <aprom_fw.bin> <PID> - update aprom fw with PID");
 end:
 	return ret;
 };

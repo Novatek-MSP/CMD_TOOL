@@ -36,7 +36,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <errno.h>
 
 #define ERR 255
@@ -55,8 +54,16 @@
 #define CMD_GET_DEVICEID 0xb1
 #define NO_AA_CHECK 0xff
 
+#ifdef BRIDGE_DEBUG
 #define PF(fmt, ...) printf(fmt"\n\n", ##__VA_ARGS__)
 #define PE(fmt, ...) printf("Error : "fmt"\n\n", ##__VA_ARGS__)
+// message to interact with shell updater
+#define PS(fmt, ...) printf(fmt, ##__VA_ARGS__)
+#else
+#define PF(fmt, ...)
+#define PE(fmt, ...) printf("Error : "fmt"\n\n", ##__VA_ARGS__)
+#define PS(fmt, ...) printf(fmt, ##__VA_ARGS__)
+#endif
 
 /*
  * xbuf[0] = REPOERT_ID
@@ -224,24 +231,22 @@ char ldrom_rst(void)
 
 char get_aprom_ver(void)
 {
-	int ver, ret;
+	int ver;
 	if (get_dev_id() != APROM_MODE) {
-		PE("Device not in aprom, set version to 0");
-		return 0;
+		PE("Device is not in aprom, set version to 0");
+		return 0; // return 0 to indicate broken fw
 	}
 
 	rst_xbuf();
 	xbuf[0] = 0x0b;
 	xbuf[2] = CMD_GET_APROM_VER;
-	ret = hid_wr(xbuf);
-	if (ret)
-		return 0; // return 0 to force fw update
+	hid_wr(xbuf);
 	ver = (xbuf[7] << 24) + (xbuf[6] << 16) + (xbuf[5] << 8) + xbuf[4];
 	PF("aprom version = %d", ver);
 
-	if (ver > (ERR - 1)) {
+	if (ver >= ERR) {
 		PE("aprom version = %d, it should not exceed %d", ver, ERR - 1);
-		return 0; // return 0 to force fw update
+		return 0; // return 0 to indicate broken fw
 	}
 
 	return ver;
@@ -265,7 +270,7 @@ void write_ldrom_checksum(void)
 char update_buf_pid_checksum(char* pid_str)
 {
 	int ret, i;
-	uint32_t chksum;
+	unsigned int chksum;
 	uint16_t pid[1];
 
 	if (!buf_bin) {
@@ -415,8 +420,15 @@ int main(int argc, char *argv[])
 	if (mode == ERR)
 		return ERR;
 
-	if (strcmp(argv[2], "-v") == 0) {
+	if (strcmp(argv[2], "-vs") == 0) {
 		ret = get_aprom_ver();
+		PS("%d", ret);
+		ret = 0; // Do not return version directly to exit code
+		goto end;
+	} else if (strcmp(argv[2], "-v") == 0) {
+		ret = get_aprom_ver();
+		PS("aprom version = %d\n", ret);
+		ret = 0; // Do not return version directly to exit code
 		goto end;
 	} else if (strcmp(argv[2], "-i") == 0) {
 		ret = check_rom_status();
@@ -435,11 +447,12 @@ int main(int argc, char *argv[])
 			PE("Failed to update aprom");
 			return ERR;
 		} else {
-			PF("Update aprom success");
+			PS("Successfully update aprom to %d\n", get_aprom_ver());
 			goto end;
 		}
 	}
 info:
+	PF("[dev/hidraw*] [-vs]                     - show aprom version for shell");
 	PF("[dev/hidraw*] [-v]                      - show aprom version");
 	PF("[dev/hidraw*] [-i]                      - show rom status");
 	PF("[dev/hidraw*] [-u] <aprom_fw.bin> <PID> - update aprom fw with PID");

@@ -23,8 +23,12 @@ int main(int32_t argc, char *argv[])
 		goto out;
 	}
 
-	if (strcmp(argv[2], "-v") == 0) {
-		return nvt_get_fw_ver();
+	if (strcmp(argv[2], "-vs") == 0) {
+		printf("%d", nvt_get_fw_ver());
+		return 0;
+	} else if (strcmp(argv[2], "-v") == 0) {
+		printf("fw version = %d\n", nvt_get_fw_ver());
+		return 0;
 	} else if (strcmp(argv[2], "-i") == 0) {
 		nvt_get_fw_info();
 		goto out;
@@ -65,6 +69,7 @@ info:
 	printf("[dev/hidraw*] [-rstidle]         - Reset Idle \n");
 	printf("[dev/hidraw*] [-R]               - Bootloader reset \n");
 	printf("[dev/hidraw*] [-id]              - Get Trim ID\n");
+	printf("[dev/hidraw*] [-vs]              - Firmware Version for shell\n");
 	printf("[dev/hidraw*] [-v]               - Firmware Version\n");
 	printf("[dev/hidraw*] [-i]               - Firmware Info\n");
 	printf("[dev/hidraw*] [-u] <fw.bin>      - Update Firmware\n");

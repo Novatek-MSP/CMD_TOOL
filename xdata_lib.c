@@ -25,7 +25,8 @@ int32_t nvt_get_fw_ver(void)
 	else
 		ts->fw_ver = buf[3];
 
-	printf("fw version = %d\n", ts->fw_ver);
+	// Do not print fw version to std, this will interrupt shell update
+	//printf("fw version = %d\n", ts->fw_ver);
 	return ts->fw_ver;
 }
 

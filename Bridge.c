@@ -99,7 +99,6 @@ char hid_wr(char* buf)
 	res = ioctl(fdev_hid, HIDIOCSFEATURE(REPORT_SIZE), buf);
 
 	if (!ret_check) {
-		res = ioctl(fdev_hid, HIDIOCGFEATURE(REPORT_SIZE), buf); // dummy read
 		usleep(50000);
 		return 0;
 	}

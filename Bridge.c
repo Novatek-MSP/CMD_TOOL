@@ -53,6 +53,7 @@
 #define CMD_LDROM_RESET 0xad
 #define CMD_WRITE_CHECKSUM  0xb0
 #define CMD_GET_DEVICEID 0xb1
+#define CMD_INT_CTRL 0x20
 #define NO_AA_CHECK 0xff
 
 #ifdef BRIDGE_DEBUG
@@ -62,7 +63,7 @@
 #define PS(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #else
 #define PF(fmt, ...)
-#define PE(fmt, ...) printf("Error : "fmt"\n\n", ##__VA_ARGS__)
+#define PE(fmt, ...) fprintf(stderr, "Error : "fmt"\n\n", ##__VA_ARGS__)
 #define PS(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #endif
 
@@ -117,6 +118,31 @@ char hid_wr(char* buf)
 	}
 
 	return 0;
+}
+
+char int_ctrl(char int_state)
+{
+	int ret, i;
+
+	for (i = 1; i < 100; i++) {
+		rst_xbuf();
+		xbuf[2] = CMD_INT_CTRL;
+		xbuf[6] = int_state;
+		ret = hid_wr(xbuf);
+		if (ret) {
+			PE("Failed to lock interrupt, retrying ... (%d)", i);
+		} else {
+			PS("Successfully turning int handler to int_state =  %d\n", int_state);
+			break;
+		}
+		usleep(500);
+	}
+
+	if (i == 100)
+		return ERR;
+
+	usleep(50000);
+	return ret;
 }
 
 char get_dev_id(void)
@@ -214,11 +240,20 @@ char get_binary(char *path)
  */
 char ldrom_rst(void)
 {
+	int ret;
+
 	PF("ldrom reset");
 	rst_xbuf();
 	xbuf[1] = NO_AA_CHECK;
 	xbuf[2] = CMD_LDROM_RESET;
 	hid_wr(xbuf);
+	usleep(50000);
+
+	// need to lock INT again
+	ret = int_ctrl(0);
+	if (ret)
+		return ret;
+
 	if (get_dev_id() == APROM_MODE) {
 		PF("Reset completed");
 		PF("Device jumps to aprom");
@@ -375,17 +410,19 @@ char update_aprom(int mode, char* bin_path, char* pid_str)
 	return ret;
 }
 
-char check_rom_status(void)
+char check_rom_status(char show)
 {
 	int mode;
 
 	mode = get_dev_id();
 	switch (mode) {
 	case LDROM_MODE:
-		PF("Device is in LDROM");
+		if (show)
+			PS("Device is in LDROM");
 		break;
 	case APROM_MODE:
-		PF("Device is in APROM");
+		if (show)
+			PS("Device is in APROM");
 		break;
 	case ERR:
 		PE("Wrong device or abnormal I2C signal");
@@ -396,7 +433,7 @@ char check_rom_status(void)
 
 int main(int argc, char *argv[])
 {
-	int mode, ret;
+	int mode, ret, int_state;
 
 	ret = 0;
 
@@ -415,25 +452,29 @@ int main(int argc, char *argv[])
 		return ERR;
 	}
 
-	mode = check_rom_status();
-
-	if (mode == ERR)
-		return ERR;
-
 	if (strcmp(argv[2], "-vs") == 0) {
+		mode = check_rom_status(0);
+		if (mode == ERR)
+			return ERR;
 		ret = get_aprom_ver();
 		PS("%d", ret);
 		ret = 0; // Do not return version directly to exit code
 		goto end;
 	} else if (strcmp(argv[2], "-v") == 0) {
+		mode = check_rom_status(0);
+		if (mode == ERR)
+			return ERR;
 		ret = get_aprom_ver();
 		PS("aprom version = %d\n", ret);
 		ret = 0; // Do not return version directly to exit code
 		goto end;
 	} else if (strcmp(argv[2], "-i") == 0) {
-		ret = check_rom_status();
+		ret = check_rom_status(1);
 		goto end;
 	} else if (strcmp(argv[2], "-u") == 0) {
+		mode = check_rom_status(0);
+		if (mode == ERR)
+			return ERR;
 		if (!argv[3]) {
 			PE("Bin path is not specified");
 			return ERR;
@@ -450,12 +491,30 @@ int main(int argc, char *argv[])
 			PS("Successfully update aprom to %d\n", get_aprom_ver());
 			goto end;
 		}
+	} else if (strcmp(argv[2], "-z") == 0) {
+		// INT control do not read rom status
+		if (!argv[3]) {
+			PE("int ctrl on/off not specified");
+			return ERR;
+		}
+		int_state = strtoul(argv[3], NULL, 10);
+		if (int_state > 1 || int_state < 0) {
+			PE("Invalid int_state value %d", int_state);
+			return ERR;
+		}
+		ret = int_ctrl(int_state);
+		if (ret)
+			return ERR;
+
+		goto end;
 	}
+
 info:
 	PF("[dev/hidraw*] [-vs]                     - show aprom version for shell");
 	PF("[dev/hidraw*] [-v]                      - show aprom version");
 	PF("[dev/hidraw*] [-i]                      - show rom status");
 	PF("[dev/hidraw*] [-u] <aprom_fw.bin> <PID> - update aprom fw with PID");
+	PF("[dev/hidraw*] [-z] <0/1>                - turning on/off INT handler");
 end:
 	return ret;
 };

@@ -141,7 +141,6 @@ char int_ctrl(char int_state)
 	if (i == 100)
 		return ERR;
 
-	usleep(50000);
 	return ret;
 }
 
